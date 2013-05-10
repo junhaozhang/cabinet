@@ -6,7 +6,7 @@
  * @author junhao.zhang@i-md.com (Bryan Zhang)
 */
 
-#include "cabinet/Cabinet.h"
+#include "core/Cabinet.h"
 
 #include <endian.h>
 #include <errno.h>
@@ -333,6 +333,7 @@ bool Cabinet::Flush() {
       SetError(E_WRITE, __FILE__, __LINE__);
       return false;
     }
+    fsync(fd_);
     data_file_length_ += buf_pos_;
     buf_pos_ = 0;
   }

@@ -40,7 +40,6 @@ class Cabinet {
   bool Set(uint32_t key, const uint8_t* value, uint32_t size);
   bool Get(uint32_t key, std::string* value, ErrorCode* ecode = NULL);
   void Delete(uint32_t key);
-  bool CopyFrom(Cabinet* cab);  // porting from one cab to another
   bool Flush();
   void IgnoreError() {
     err_ = E_SUCCESS;
@@ -69,6 +68,7 @@ class Cabinet {
     // debug fd is the file descriptor of error output
     dbgfd_ = fd;
   }
+  bool CopyFrom(Cabinet* cab);
 
  private:
   struct BlockInfo {
