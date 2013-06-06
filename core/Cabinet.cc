@@ -35,11 +35,6 @@ struct IndexEntry {
   }
 };
 
-struct FreeFileData {
-  uint64_t free_block_bytes_count;
-  uint32_t free_block_count;
-};
-
 static const uint32_t sBufferSize = 4 * 1024 * 1024;
 static const uint64_t sInvalidPosition = 0xffffffffffffffff;
 static const uint32_t sInvalidSize = 0xffffffff;
@@ -55,7 +50,6 @@ Cabinet::Cabinet() : fd_(-1),
 
 Cabinet::Cabinet(const char* file_name) : fd_(-1),
                   data_file_length_(0), dbgfd_(-1), err_(E_SUCCESS),
-                  free_block_count_(0), free_block_bytes_count_(0),
                   buf_pos_(0) {
   buf_.resize(sBufferSize);
   Open(file_name);
@@ -149,19 +143,6 @@ bool Cabinet::Open(const char* location) {
   }
   fclose(file);
 
-  file = fopen((path_ + "free").c_str(), "r");  // creat if not exists
-  if (!file) {
-    SetError(E_OPEN, __FILE__, __LINE__);
-    close(fd_);
-    fd_ = -1;
-    return false;
-  }
-  FreeFileData data;
-  if (fread(&data, sizeof(data), 1, file) == 1) {
-    free_block_count_ = le32toh(data.free_block_count);
-    free_block_bytes_count_ = le64toh(data.free_block_bytes_count);
-  }
-  fclose(file);
   return true;
 }
 
@@ -396,26 +377,6 @@ bool Cabinet::Flush() {
   }
   dels_.clear();
   fclose(file);
-
-  // writing free list info
-  file = fopen((path_ + "free.tmp").c_str(), "w");
-  if (!file) {
-    SetError(E_OPEN, __FILE__, __LINE__);
-    return false;
-  }
-
-  FreeFileData data;
-  data.free_block_count = htole32(free_block_count_);
-  data.free_block_bytes_count = htole64(free_block_bytes_count_);
-  if (fwrite(&data, sizeof(data), 1, file) != 1) {
-    SetError(E_WRITE, __FILE__, __LINE__);
-    fclose(file);
-    return false;
-  }
-  fclose(file);
-
-  // rename
-  rename((path_ + "free.tmp").c_str(), (path_ + "free").c_str());
 
   return true;
 }

@@ -1,1 +1,1 @@
-Cabinet is an key-value storage with high performance.
+Cabinet is an light-weight key-value storage with high performance.

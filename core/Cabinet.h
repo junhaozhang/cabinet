@@ -51,12 +51,6 @@ class Cabinet {
   uint64_t GetChangedCount() const {
     return inses_.size() + dels_.size();
   }
-  uint64_t FreeBlockCount() const {
-    return free_block_count_;
-  }
-  uint64_t FreeBlockBytesCount() const {
-    return free_block_bytes_count_;
-  }
   std::string GetPath() const {
     return path_;
   }
