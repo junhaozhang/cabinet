@@ -6,8 +6,8 @@
  * @author junhao.zhang@i-md.com (Bryan Zhang)
 */
 
-#ifndef CPP_CABINET_CABINET_H_
-#define CPP_CABINET_CABINET_H_
+#ifndef CABINET_CORE_CABINET_H_
+#define CABINET_CORE_CABINET_H_
 
 #include <ext/pool_allocator.h>
 #include <stdint.h>
@@ -17,7 +17,19 @@
 #include <string>
 #include <vector>
 
+// class Cabinet
+// template params:
+// * KeyType
+// * KeyHeaderType
+// * KeyHeaderExtractor - operator, extract key header field from a key (should be in little-endian byte order).
+// * KeyDataExtractor - operator, extrack key data from a key (shold be in little-endian byte order).
+// Note: for better compatible, we store file data in little-endian byte order.
 namespace cabinet {
+struct KeyData {
+  void* ptr;
+  uint32_t len;
+};
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
 class Cabinet {
  public:
   enum ErrorCode {
@@ -37,9 +49,9 @@ class Cabinet {
   bool Open(const char* location);
   void Close();
 
-  bool Set(uint32_t key, const uint8_t* value, uint32_t size);
-  bool Get(uint32_t key, std::string* value, ErrorCode* ecode = NULL);
-  void Delete(uint32_t key);
+  bool Set(KeyType key, const uint8_t* value, uint32_t size);
+  bool Get(KeyType key, std::string* value, ErrorCode* ecode = NULL);
+  void Delete(KeyType key);
   bool Flush();
   void IgnoreError() {
     err_ = E_SUCCESS;
@@ -69,6 +81,14 @@ class Cabinet {
     uint32_t size;
     uint64_t position;
   };
+  struct FileIndexEntry {  // index entry in file.
+    KeyHeaderType keyHeader;
+    uint32_t valueSize;
+    uint64_t position;
+    bool operator < (const FileIndexEntry& rhs) const {
+      return position < rhs.position;
+    }
+  };
   bool ReadBlockInfo(const BlockInfo& blk,
     std::string* value, ErrorCode* ecode);
   void SetError(ErrorCode ecode, const char* file_name, uint32_t lineno);
@@ -77,12 +97,10 @@ class Cabinet {
   uint64_t data_file_length_;
   int dbgfd_;
   ErrorCode err_;
-  uint64_t free_block_count_;
-  uint64_t free_block_bytes_count_;
-  typedef __gnu_cxx::hash_map<uint32_t, BlockInfo, __gnu_cxx::hash<uint32_t>,
-    std::equal_to<uint32_t>, __gnu_cxx::__pool_alloc<BlockInfo> > MapType;
-  typedef __gnu_cxx::hash_set<uint32_t, __gnu_cxx::hash<uint32_t>,
-    std::equal_to<uint32_t>, __gnu_cxx::__pool_alloc<uint32_t> > SetType;
+  typedef __gnu_cxx::hash_map<KeyType, BlockInfo, __gnu_cxx::hash<KeyType>,
+    std::equal_to<KeyType>, __gnu_cxx::__pool_alloc<BlockInfo> > MapType;
+  typedef __gnu_cxx::hash_set<KeyType, __gnu_cxx::hash<KeyType>,
+    std::equal_to<KeyType>, __gnu_cxx::__pool_alloc<KeyType> > SetType;
   MapType original_index_;
   MapType inses_;
   SetType dels_;
@@ -91,4 +109,4 @@ class Cabinet {
 };
 }  // namespace cabinet
 
-#endif  // CPP_CABINET_CABINET_H_
+#endif  // CABINET_CORE_CABINET_H_

@@ -26,40 +26,34 @@ using std::priority_queue;
 using std::string;
 
 namespace {
-struct IndexEntry {
-  uint32_t key;
-  uint32_t size;
-  uint64_t position;
-  bool operator < (const IndexEntry& rhs) const {
-    return position < rhs.position;
-  }
-};
-
 static const uint32_t sBufferSize = 4 * 1024 * 1024;
 static const uint64_t sInvalidPosition = 0xffffffffffffffff;
 static const uint32_t sInvalidSize = 0xffffffff;
 }  // namespace
 
 namespace cabinet {
-Cabinet::Cabinet() : fd_(-1),
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Cabinet() : fd_(-1),
                      data_file_length_(0), dbgfd_(-1), err_(E_SUCCESS),
-                     free_block_count_(0), free_block_bytes_count_(0) ,
                      buf_pos_(0) {
   buf_.resize(sBufferSize);
 }
 
-Cabinet::Cabinet(const char* file_name) : fd_(-1),
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Cabinet(const char* file_name) : fd_(-1),
                   data_file_length_(0), dbgfd_(-1), err_(E_SUCCESS),
                   buf_pos_(0) {
   buf_.resize(sBufferSize);
   Open(file_name);
 }
 
-Cabinet::~Cabinet() {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::~Cabinet() {
   Close();
 }
 
-bool Cabinet::Open(const char* location) {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+bool Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Open(const char* location) {
   Close();
   if (err_ != E_SUCCESS) {
     return false;
@@ -111,42 +105,33 @@ bool Cabinet::Open(const char* location) {
     fd_ = -1;
     return false;
   }
-  IndexEntry index_entry;
+  FileIndexEntry index_entry;
+  KeyType key;
   while (fread(&index_entry, sizeof(index_entry), 1, file) == 1) {
-    index_entry.key = le32toh(index_entry.key);
+    key = KeyReader(file, index_entry.keyHeader);
     index_entry.position = le64toh(index_entry.position);
     index_entry.size = le32toh(index_entry.size);
 
     // if deleted from original index
     if (index_entry.position == sInvalidPosition &&
       index_entry.size == sInvalidSize) {
-      MapType::iterator itr = original_index_.find(index_entry.key);
+      typename MapType::iterator itr = original_index_.find(key);
       if (itr != original_index_.end()) {
         original_index_.erase(itr);
       }
     } else {
-      BlockInfo& info = original_index_[index_entry.key];
+      BlockInfo& info = original_index_[key];
       info.position = index_entry.position;
       info.size = index_entry.size;
     }
   }
   fclose(file);
 
-  // read free block count, free block bytes count
-  // create the file if not exists
-  file = fopen((path_ + "free").c_str(), "a");
-  if (!file) {
-    SetError(E_OPEN, __FILE__, __LINE__);
-    close(fd_);
-    fd_ = -1;
-    return false;
-  }
-  fclose(file);
-
   return true;
 }
 
-void Cabinet::Close() {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+void Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Close() {
   if (fd_ == -1) {
     return;
   }
@@ -161,13 +146,12 @@ void Cabinet::Close() {
   data_file_length_ = 0;
 
   original_index_.clear();
-  free_block_count_ = 0;
-  free_block_bytes_count_ = 0;
 
   path_.clear();
 }
 
-bool Cabinet::Set(uint32_t key, const uint8_t* value, uint32_t size) {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+bool Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Set(KeyType key, const uint8_t* value, uint32_t size) {
   // firstly remove old data
   Delete(key);
 
@@ -184,7 +168,7 @@ bool Cabinet::Set(uint32_t key, const uint8_t* value, uint32_t size) {
       return false;
     }
     data_file_length_ += size;
-    SetType::iterator itr = dels_.find(key);
+    typename SetType::iterator itr = dels_.find(key);
     if (itr != dels_.end()) {
       dels_.erase(itr);
     }
@@ -196,7 +180,7 @@ bool Cabinet::Set(uint32_t key, const uint8_t* value, uint32_t size) {
 
   memcpy(&buf_[buf_pos_], value, size);
   buf_pos_ += size;
-  SetType::iterator itr = dels_.find(key);
+  typename SetType::iterator itr = dels_.find(key);
   if (itr != dels_.end()) {
     dels_.erase(itr);
   }
@@ -207,15 +191,16 @@ bool Cabinet::Set(uint32_t key, const uint8_t* value, uint32_t size) {
   return true;
 }
 
-bool Cabinet::Get(uint32_t key, std::string* value, ErrorCode* ecode) {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+bool Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Get(KeyType key, std::string* value, ErrorCode* ecode) {
   // finding in insert map
-  MapType::iterator itr = inses_.find(key);
+  typename MapType::iterator itr = inses_.find(key);
   if (itr != inses_.end()) {
     return ReadBlockInfo(itr->second, value, ecode);
   }
 
   // finding in delete set
-  SetType::iterator itr_set = dels_.find(key);
+  typename SetType::iterator itr_set = dels_.find(key);
   if (itr_set != dels_.end()) {
     return false;
   }
@@ -229,9 +214,10 @@ bool Cabinet::Get(uint32_t key, std::string* value, ErrorCode* ecode) {
   return false;
 }
 
-void Cabinet::Delete(uint32_t key) {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+void Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Delete(KeyType key) {
   uint32_t size = 0;
-  MapType::iterator itr = inses_.find(key);
+  typename MapType::iterator itr = inses_.find(key);
   if (itr != inses_.end()) {
     size = itr->second.size;
     inses_.erase(itr);
@@ -244,13 +230,10 @@ void Cabinet::Delete(uint32_t key) {
   } else {
     return;
   }
-
-  // update free block info
-  ++free_block_count_;
-  free_block_bytes_count_ += size;
 }
 
-bool Cabinet::CopyFrom(Cabinet* cab) {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+bool Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::CopyFrom(Cabinet* cab) {
   if (cab->fd_ == -1) {
     SetError(E_NOTOPEN, __FILE__, __LINE__);
     return false;
@@ -272,9 +255,14 @@ bool Cabinet::CopyFrom(Cabinet* cab) {
 
   // insert all index entries into a priority queue
   cab->Flush();
-  priority_queue<IndexEntry> entry_que;
-  IndexEntry entry;
-  for (MapType::const_iterator itr = cab->original_index_.begin();
+  struct MemIndexEntry {
+    KeyType key;
+    uint64_t position;
+    uint32_t size;
+  };
+  priority_queue<MemIndexEntry> entry_que;
+  MemIndexEntry entry;
+  for (typename MapType::const_iterator itr = cab->original_index_.begin();
        itr != cab->original_index_.end(); ++itr) {
     entry.key = itr->first;
     entry.position = itr->second.position;
@@ -299,7 +287,8 @@ bool Cabinet::CopyFrom(Cabinet* cab) {
   return Flush();
 }
 
-bool Cabinet::Flush() {
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+bool Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::Flush() {
   if (buf_pos_ == 0 && inses_.empty() && dels_.empty()) {
     return true;
   }
@@ -332,43 +321,52 @@ bool Cabinet::Flush() {
     fclose(file);
     return false;
   }
-  if (fseek(file,
-      st.st_size / sizeof(IndexEntry) * sizeof(IndexEntry), SEEK_SET) != 0) {
-    SetError(E_SEEK, __FILE__, __LINE__);
-    fclose(file);
-    return false;
-  }
 
-  IndexEntry index_entry;
-  for (MapType::iterator itr = inses_.begin();
+  FileIndexEntry index_entry;
+  KeyData keyData;
+  for (typename MapType::iterator itr = inses_.begin();
       itr != inses_.end(); ++itr) {
-    index_entry.key = htole32(itr->first);
+    index_entry.keyHeader = KeyHeaderExtractor(itr->first);
     index_entry.position = htole64(itr->second.position);
-    index_entry.size = htole32(itr->second.size);
+    index_entry.valueSize = htole32(itr->second.size);
+    keyData = KeyDataExtractor(itr->first);
     if (fwrite(&index_entry, sizeof(index_entry), 1, file) != 1) {
       SetError(E_WRITE, __FILE__, __LINE__);
       fclose(file);
       return false;
     }
+    if (keyData.len > 0 && fwrite(keyData.ptr, keyData.len, 1, file) != 1) {
+      SetError(E_WRITE, __FILE__, __LINE__);
+      fclose(file);
+      return false;
+    }
   }
-  for (MapType::iterator itr = inses_.begin();
+
+  for (typename MapType::iterator itr = inses_.begin();
       itr != inses_.end(); ++itr) {
     original_index_[itr->first] = itr->second;
   }
   inses_.clear();
-  for (SetType::iterator itr = dels_.begin();
+  for (typename SetType::iterator itr = dels_.begin();
       itr != dels_.end(); ++itr) {
-    index_entry.key = htole32(*itr);
+    index_entry.keyHeader = KeyHeaderExtractor(*itr);
     index_entry.position = sInvalidPosition;
     index_entry.size = sInvalidSize;
+    keyData = KeyDataExtractor(itr->first);
     if (fwrite(&index_entry, sizeof(index_entry), 1, file) != 1) {
       SetError(E_WRITE, __FILE__, __LINE__);
       fclose(file);
       return false;
     }
+    if (keyData.len > 0 && fwrite(keyData.ptr, keyData.len, 1, file) != 1) {
+      SetError(E_WRITE, __FILE__, __LINE__);
+      fclose(file);
+      return false;
+    }
   }
-  MapType::iterator itr_map;
-  for (SetType::iterator itr = dels_.begin();
+
+  typename MapType::iterator itr_map;
+  for (typename SetType::iterator itr = dels_.begin();
       itr != dels_.end(); ++itr) {
     itr_map = original_index_.find(*itr);
     if (itr_map != original_index_.end()) {
@@ -381,7 +379,8 @@ bool Cabinet::Flush() {
   return true;
 }
 
-void Cabinet::SetError(ErrorCode ecode,
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+void Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::SetError(ErrorCode ecode,
      const char* file_name, uint32_t lineno) {
   err_ = ecode;
   char buf[1024];
@@ -392,7 +391,8 @@ void Cabinet::SetError(ErrorCode ecode,
   }
 }
 
-bool Cabinet::ReadBlockInfo(const BlockInfo& blk,
+template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
+bool Cabinet<KeyType, KeyHeaderType, KeyHeaderExtractor, KeyDataExtractor, KeyReader>::ReadBlockInfo(const BlockInfo& blk,
     std::string* value, ErrorCode* ecode) {
   value->clear();
   value->resize(blk.size);
@@ -415,5 +415,4 @@ bool Cabinet::ReadBlockInfo(const BlockInfo& blk,
   }
   return true;
 }
-
 }  // namespace cabinet
