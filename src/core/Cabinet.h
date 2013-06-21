@@ -30,7 +30,7 @@ struct KeyData {
   uint32_t len;
 };
 template <class KeyType, class KeyHeaderType, class KeyHeaderExtractor, class KeyDataExtractor, class KeyReader>
-class Cabinet {
+class Cabinet : public CabinetTag {
  public:
   enum ErrorCode {
     E_SUCCESS = 0,
@@ -74,7 +74,7 @@ class Cabinet {
     // debug fd is the file descriptor of error output
     dbgfd_ = fd;
   }
-  bool CopyFrom(Cabinet* cab);
+  void GetDataBytes();
 
  private:
   struct BlockInfo {
