@@ -1,0 +1,4 @@
+tool
+build
+.scons
+*.swp
