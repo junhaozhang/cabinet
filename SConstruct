@@ -183,7 +183,7 @@ def finish_add_thrift_gen_source(env, dummy):
   env.Library(source = env['THRIFT_GEN_SOURCE'], target = "$BUILD_DIR/cabinet_thrift_gen", CPPDEFINES=["HAVE_NETINET_IN_H"])
   env['THRIFT_GEN_SOURCE'] = []
 
-scansrcs = env.ScanSrcs("#BUILD_DIR/gen-cpp/dummy", thriftgenlist, SCANSRCS_FUNC = add_thrift_gen_source, SCANSRCS_POSTFUNC = finish_add_thrift_gen_source)
+scansrcs = env.ScanSrcs("$BUILD_DIR/gen-cpp/dummy", thriftgenlist, SCANSRCS_FUNC = add_thrift_gen_source, SCANSRCS_POSTFUNC = finish_add_thrift_gen_source)
 env.AlwaysBuild(scansrcs)
 
 # cabinet server
