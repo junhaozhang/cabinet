@@ -60,6 +60,7 @@ service CabinetStorageService {
   void Set(1: string dbName, 2: KeyType key, 3: binary value) throws (1: BadDbName badDbName, 2: DbNotExist dbNotExist, 3: IOException ioException),
   void Delete(1: string dbName, 2: KeyType key) throws (1: BadDbName badDbName, 2: DbNotExist dbNotExist, 3: IOException ioException),
   void Flush(1: string dbName) throws (1: BadDbName badDbName, 2: DbNotExist dbNotExist, 3: IOException ioException),
+  void Sync(1: string dbName) throws (1: BadDbName badDbName, 2: DbNotExist dbNotExist, 3: IOException ioException),
 
   list<GetInfo> BatchGet(1: string dbName, 2: list<KeyType> keys) throws (1: BadDbName badDbName, 2: DbNotExist dbNotExist, 3: IOException ioException),
   void BatchSet(1: string dbName, 2: list<KeyType> keys, 3: list<binary> values) throws (1: BadDbName badDbName, 2: DbNotExist dbNotExist, 3: IOException ioException),

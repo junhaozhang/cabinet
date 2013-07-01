@@ -72,6 +72,7 @@ namespace cabinet {
         return false;
       }
       size = le32toh(size);
+      ret.clear();
       ret.resize(size);
       if (size > 0 && fread((void*)ret.c_str(), size, 1, file) != 1) {
         int err = errno;
@@ -83,12 +84,12 @@ namespace cabinet {
   };
 
   struct StringKeyWriter : public std::binary_function<void, FILE*,const std::string&> {
-    void operator()(FILE* file, const std::string& ret) const {
-      if (ret.size() > (uint64_t)0xffffffff) {
+    void operator()(FILE* file, const std::string& str) const {
+      if (str.size() > (uint64_t)0xffffffff) {
         throw std::runtime_error("String too large!");
       }
-      uint32_t size = htole32((uint32_t)ret.size());
-      if (fwrite(&size, sizeof(size), 1, file) != 1 || fwrite(ret.c_str(), size, 1, file) != 1) {
+      uint32_t size = htole32((uint32_t)str.size());
+      if (fwrite(&size, sizeof(size), 1, file) != 1 || fwrite(str.c_str(), size, 1, file) != 1) {
         int err = errno;
         fclose(file);
         throw WriteFileException(__FILE__, __LINE__, err, strerror(err));

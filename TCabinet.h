@@ -32,6 +32,7 @@ class CabinetBase {
   virtual void Drop() = 0;
   virtual void Flush() = 0;
   virtual void Compact() = 0;
+  virtual void Sync() = 0;
 
   virtual uint64_t GetEntryCount() const = 0;
   virtual uint64_t GetChangedCount() const = 0;
@@ -59,6 +60,7 @@ class TCabinet : public CabinetBase {
   void Drop();
   void Flush();
   void Compact();
+  void Sync();
 
   void Set(const KeyType& key, const uint8_t* value, uint32_t size);
   bool Get(const KeyType& key, std::string* value);
@@ -97,6 +99,7 @@ class TCabinet : public CabinetBase {
   SetType dels_;
   std::vector<uint8_t> buf_;
   uint32_t buf_pos_;
+  bool synced_;
 };
 }  // namespace cabinet
 

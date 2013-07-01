@@ -125,6 +125,20 @@ def mkdir_p(path):
 build_abs_path = env.Dir("$BUILD_DIR").abspath
 mkdir_p(build_abs_path)
 
+# unit test
+def runUnitTest(env, target, source):
+  import subprocess
+  app = str(source[0].abspath)
+  if not subprocess.call(app):
+    open(str(target[0]), 'w').write("PASSED\n")
+    print("Test %s passed!" % source[0].path)
+  else:
+    print("Test %s failed!" % source[0].path)
+
+u32test = env.Command("$BUILD_DIR/u32test.passed", env.Program(target = "$BUILD_DIR/u32test", source = env.Object(target = "$BUILD_DIR/u32test.o", source = "U32CabinetTest.cc")), runUnitTest)
+strtest = env.Command("$BUILD_DIR/strtest.passed", env.Program(target = "$BUILD_DIR/strtest", source = env.Object(target = "$BUILD_DIR/strtest.o", source = "StringCabinetTest.cc")), runUnitTest)
+test = env.Alias('test', [u32test, strtest])
+
 # thrift
 """
 env.Append(BUILDERS = {'Thrift' :
@@ -202,7 +216,7 @@ cabinetd = env.Program(
   CPPDEFINES = [ "HAVE_CONFIG_H" ]
 )
 env.Depends(cabinetd, [scansrcs, "$BUILD_DIR/libcabinet_thrift_gen.a"])
-env.Default(cabinetd)
+env.Default(env.Alias("server", [cabinetd, test]))
 
 # cabinet server
 # --- install ---

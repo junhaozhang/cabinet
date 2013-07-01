@@ -1,13 +1,12 @@
 // TODO: daemonize, thrift iterator interface, merge KeyHeaderExtractor, KeyDataExtractor (no type in cabinet)
 // 压缩
-// compact实现,logfile, bind address, serverCron
+// 添加thirdparty
+// logfile, bind address, serverCron
 // 在写错误的情况下，允许读，但是不允许写,ipython
-// glob文件路径
-// autotool
+// glog文件路径
 // 定时刷新、关闭超时cursor的线程
 // 测试的点:
-// 1)log文件,daemonize是否正常;
-// 2)读写,compact, iterator
+// 1)log文件,logappedn;
 
 /**
  * Copyright 2012 i-MD.com. All Rights Reserved.
@@ -258,6 +257,19 @@ class CabinetStorageHandler : virtual public CabinetStorageServiceIf {
       (itr->second.ptr.get())->Flush();
     } catch (exception& e) {
       LOG(INFO) << "Exeption occurs while Flush: " << e.what();
+      throw IOException();
+    }
+  }
+
+  void Sync(const std::string& dbName) {
+    RWGuard guard(rwmutex_, RW_READ);
+    _CheckDbName(dbName);
+    map<std::string, SyncCabinet>::iterator itr = _GetSafeIterator(dbName);
+    RWGuard subGuard(*(itr->second.rwmutex_), RW_WRITE);
+    try {
+      (itr->second.ptr.get())->Flush();
+    } catch (exception& e) {
+      LOG(INFO) << "Exception occurs while Sync: " << e.what();
       throw IOException();
     }
   }

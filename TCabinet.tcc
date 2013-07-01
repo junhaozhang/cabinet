@@ -39,13 +39,13 @@ using std::string;
 
 template <class KeyType, class KeyReader, class KeyWriter, class KeyHashFunc>
 TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::TCabinet() : fd_(-1),
-                     data_file_length_(0), actual_bytes_(0), buf_pos_(0) {
+                     data_file_length_(0), actual_bytes_(0), buf_pos_(0), synced_(false) {
   buf_.resize(sBufferSize);
 }
 
 template <class KeyType, class KeyReader, class KeyWriter, class KeyHashFunc>
 TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::TCabinet(const char* file_name) : fd_(-1),
-                  data_file_length_(0), actual_bytes_(0), buf_pos_(0) {
+                  data_file_length_(0), actual_bytes_(0), buf_pos_(0), synced_(false) {
   buf_.resize(sBufferSize);
   Open(file_name);
 }
@@ -104,7 +104,6 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Open(const char* loca
       fclose(file);
       throw FileCorruptException(__FILE__, __LINE__, err, strerror(err));
     }
-
     block.position = le64toh(block.position);
     block.size = le32toh(block.size);
 
@@ -124,6 +123,7 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Open(const char* loca
     }
   }
   fclose(file);
+  synced_ = true;
 }
 
 template <class KeyType, class KeyReader, class KeyWriter, class KeyHashFunc>
@@ -140,6 +140,8 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Close() {
   data_file_length_ = 0;
 
   original_index_.clear();
+  inses_.clear();
+  dels_.clear();
 
   path_.clear();
 }
@@ -232,7 +234,7 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Delete(const KeyType&
 
 template <class KeyType, class KeyReader, class KeyWriter, class KeyHashFunc>
 void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Flush() {
-  if (buf_pos_ == 0 && inses_.empty() && dels_.empty()) {
+  if (fd_ == -1 && buf_pos_ == 0 && inses_.empty() && dels_.empty()) {
     return;
   }
 
@@ -240,19 +242,17 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Flush() {
   mkdir(path_.c_str(), S_IRUSR | S_IWUSR | S_IEXEC);
 
   // writing buffer into data file
-  bool needfsync = false;
   if (buf_pos_ != 0) {
     ssize_t ret = pwrite(fd_, &buf_[0], buf_pos_, data_file_length_);
     if (ret != buf_pos_) {
       throw WriteFileException(__FILE__, __LINE__, errno, strerror(errno));
     }
-    needfsync = true;
     data_file_length_ += buf_pos_;
     buf_pos_ = 0;
   }
 
   // appending entries from inses_ & dels_
-  FILE* file = fopen((path_ + "index").c_str(), "r+b");
+  FILE* file = fopen((path_ + "index").c_str(), "ab");
   if (!file) {
     throw OpenFileException(__FILE__, __LINE__, errno, strerror(errno));
   }
@@ -305,29 +305,50 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Flush() {
   }
   dels_.clear();
   fflush(file);
-  fsync(fileno(file));
   fclose(file);
-  if (needfsync) {
-    fsync(fd_);
+  synced_ = false;
+}
+
+template <class KeyType, class KeyReader, class KeyWriter, class KeyHashFunc>
+void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Sync() {
+  if (fd_ == -1) {
+    return;
   }
+
+  Flush();
+  if (!synced_) {
+    return;
+  }
+
+  FILE* file = fopen((path_ + "index").c_str(), "ab");
+  if (!file) {
+    throw OpenFileException(__FILE__, __LINE__, errno, strerror(errno));
+  }
+  fsync(fileno(file));
+  fsync(fd_);
+  fclose(file);
+  synced_ = true;
 }
 
 template <class KeyType, class KeyReader, class KeyWriter, class KeyHashFunc>
 void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Compact() {
+  if (fd_ == -1) {
+    return;
+  }
   Flush();
 
   pid_t pid = getpid();
   std::stringstream oss;
   oss << path_ << "tmp-index." << pid;
   string tmpIndexPath = oss.str();
-  FILE* tmpIndexFile = fopen(tmpIndexPath.c_str(), "wb");
+  FILE* tmpIndexFile = fopen(tmpIndexPath.c_str(), "wb+");
   if (!tmpIndexFile) {
     throw OpenFileException(__FILE__, __LINE__, errno, strerror(errno));
   }
-  oss.clear();
+  oss.str("");
   oss << path_ << "tmp-data." << pid;
   string tmpDataPath = oss.str();
-  FILE* tmpDataFile = fopen(tmpDataPath.c_str(), "wb");
+  FILE* tmpDataFile = fopen(tmpDataPath.c_str(), "wb+");
   if (!tmpDataFile) {
     int err = errno;
     fclose(tmpIndexFile);
@@ -341,15 +362,24 @@ void TCabinet<KeyType, KeyReader, KeyWriter, KeyHashFunc>::Compact() {
   BlockInfo block;
   for (typename MapType::iterator itr = original_index_.begin(); itr != original_index_.end(); ++itr) {
     ReadBlockInfo(itr->second, &value);
-    KeyWriter()(tmpDataFile, itr->first);
+    KeyWriter()(tmpIndexFile, itr->first);
     block.position = htole64(itr->second.position);
     block.size = htole32(itr->second.size);
-    if (fwrite(&block, sizeof(block), 1, tmpIndexFile) != 1 || fwrite(value.c_str(), value.size(), 1, tmpDataFile) != 1) {
+    if (fwrite(&block, sizeof(block), 1, tmpIndexFile) != 1) {
       int err = errno;
       fclose(tmpIndexFile);
       unlink(tmpIndexPath.c_str());
       fclose(tmpDataFile);
+      unlink(tmpDataPath.c_str());
+      throw WriteFileException(__FILE__, __LINE__, err, strerror(err));
+    }
+
+    if (!value.empty() && fwrite(value.c_str(), value.size(), 1, tmpDataFile) != 1) {
+      int err = errno;
+      fclose(tmpIndexFile);
       unlink(tmpIndexPath.c_str());
+      fclose(tmpDataFile);
+      unlink(tmpDataPath.c_str());
       throw WriteFileException(__FILE__, __LINE__, err, strerror(err));
     }
     block.position = byte_count;
